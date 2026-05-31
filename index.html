@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>跨裝置雲端攝影機</title>
+    <!-- 引入 PeerJS 與 QRCode.js 外掛 -->
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+        background-color: #1a1a1a;
+        color: white;
+        font-family: sans-serif;
+        overflow: hidden;
+      }
+      #status {
+        position: absolute;
+        top: 10px;
+        font-size: 1.2rem;
+        color: #00ff00;
+        z-index: 10;
+        background: rgba(0,0,0,0.5);
+        padding: 5px 15px;
+        border-radius: 20px;
+      }
+      #setup-area {
+        text-align: center;
+      }
+      #qrcode-container {
+        display: inline-block;
+        background: white;
+        padding: 10px 10px 5px 10px; /* 精準貼合 QR Code */
+        border-radius: 10px;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+      }
+      /* 影片容器：確保等比例且不超出螢幕 */
+      .video-container {
+        width: 100vw;
+        height: 100vh;
+        display: none;
+        position: relative;
+        background: #000;
+      }
+      video {
+        width: 100%;
+        height: 100%;
+        object-fit: contain; /* 等比例縮放，確保不變形且完整顯示 */
+        transform: scaleX(1); /* 確保畫面為正向（不鏡像） */
+      }
+      p { text-align: center; max-width: 80%; }
+    </style>
+  </head>
+  <body>
+    <div id="status">初始化連線中...</div>
+
+    <div id="setup-area">
+      <div id="qrcode-container"></div>
+      <p>請用手機掃描上方 QR Code 作為攝影機</p>
+    </div>
+
+    <div id="video-container" class="video-container">
+      <video id="remote-video" autoplay playsinline></video>
+    </div>
+
+    <script>
+      const statusEl = document.getElementById('status');
+      const setupArea = document.getElementById('setup-area');
+      const videoContainer = document.getElementById('video-container');
+      const videoEl = document.getElementById('remote-video');
+
+      // 檢查網址是否有參數 (被掃描後會帶有 ?join=ID)
+      const urlParams = new URLSearchParams(window.location.search);
+      const joinId = urlParams.get('join');
+
+      const peer = new Peer();
+
+      peer.on('open', (id) => {
+        if (!joinId) {
+          // 電腦端：顯示 QR Code 等待手機撥入
+          statusEl.innerText = "等待攝影機加入...";
+          const hostUrl = `${window.location.origin}${window.location.pathname}?join=${id}`;
+          new QRCode(document.getElementById("qrcode-container"), {
+            text: hostUrl,
+            width: 200,
+            height: 200
+          });
+        } else {
+          // 手機端：主動請求攝影機並撥打給電腦
+          statusEl.innerText = "手機攝影機啟動中...";
+          setupArea.style.display = 'none';
+          startCamera(joinId);
+        }
+      });
+
+      // 電腦端：接聽手機的來電
+      peer.on('call', (call) => {
+        call.answer(); // 接聽
+        call.on('stream', (stream) => {
+          showVideoStream(stream);
+          statusEl.innerText = "攝影機已連線";
+        });
+      });
+
+      async function startCamera(targetId) {
+        try {
+          // 指定使用前置鏡頭 (user)
+          const stream = await navigator.mediaDevices.getUserMedia({ 
+            video: { 
+              facingMode: "user", // 使用前置鏡頭自拍
+              width: { ideal: 1920 },
+              height: { ideal: 1080 }
+            }, 
+            audio: false 
+          });
+          
+          showVideoStream(stream); // 手機端也顯示自己
+          peer.call(targetId, stream); // 將畫面傳給電腦
+          statusEl.innerText = "影像傳送中...";
+        } catch (err) {
+          statusEl.innerText = "相機開啟失敗: " + err.message;
+        }
+      }
+
+      function showVideoStream(stream) {
+        setupArea.style.display = 'none';
+        videoContainer.style.display = 'block';
+        videoEl.srcObject = stream;
+      }
+    </script>
+  </body>
+</html>
